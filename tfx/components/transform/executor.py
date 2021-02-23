@@ -151,8 +151,6 @@ class _Dataset(object):
     self._index = None
     self._standardized = None
     self._transformed = None
-    self._transformed_and_serialized = None
-    self._transformed_and_standardized = None
     self._tfxio = None
 
   @property
@@ -205,16 +203,6 @@ class _Dataset(object):
     return self._transformed
 
   @property
-  def transformed_and_serialized(self):
-    assert self._transformed_and_serialized is not None
-    return self._transformed_and_serialized
-
-  @property
-  def transformed_and_standardized(self):
-    assert self._transformed_and_standardized is not None
-    return self._transformed_and_standardized
-
-  @property
   def tfxio(self):
     assert self._tfxio is not None
     return self._tfxio
@@ -230,14 +218,6 @@ class _Dataset(object):
   @transformed.setter
   def transformed(self, val):
     self._transformed = val
-
-  @transformed_and_serialized.setter
-  def transformed_and_serialized(self, val):
-    self._transformed_and_serialized = val
-
-  @transformed_and_standardized.setter
-  def transformed_and_standardized(self, val):
-    self._transformed_and_standardized = val
 
   @tfxio.setter
   def tfxio(self, val):
@@ -594,17 +574,7 @@ class Executor(base_executor.BaseExecutor):
     Returns:
       beam.pvalue.PDone.
     """
-    def _FilterInternalColumn(record_batch):
-      filtered_column_names = []
-      filtered_columns = []
-      for i, column_name in enumerate(record_batch.schema.names):
-        if column_name != _TRANSFORM_INTERNAL_FEATURE_FOR_KEY:
-          filtered_column_names.append(column_name)
-          filtered_columns.append(record_batch.column(i))
-      return pa.RecordBatch.from_arrays(filtered_columns, filtered_column_names)
-
-    pcoll |= 'FilterInternalColumn' >> beam.Map(_FilterInternalColumn)
-    # pylint: disable=no-value-for-parameter
+    pcoll |= 'FilterInternalColumn' >> beam.Map(Executor._FilterInternalColumn)
     return (pcoll
             | 'GenerateStatistics' >> tfdv.GenerateStatistics(stats_options)
             | 'WriteStats' >> Executor._WriteStats(stats_output_path,
@@ -689,26 +659,6 @@ class Executor(base_executor.BaseExecutor):
         shard_name_template='',  # To force unsharded output.
         coder=beam.coders.ProtoCoder(
             statistics_pb2.DatasetFeatureStatisticsList)))
-
-  @beam.typehints.with_input_types(Dict[Text, Any], schema=schema_pb2.Schema)
-  @beam.typehints.with_output_types(Tuple[Optional[bytes], bytes])
-  class _EncodeAsSerializedExamples(beam.DoFn):
-    """Encodes data as serialized tf.Examples based on the given metadata."""
-
-    def __init__(self):
-      self._coder = None
-
-    def process(self, element: Dict[Text, Any], schema: schema_pb2.Schema
-               ) -> Generator[Tuple[Any, Any], None, None]:
-      if self._coder is None:
-        self._coder = tft.coders.ExampleProtoCoder(schema, serialized=True)
-
-      # Make sure that the synthetic key feature doesn't get encoded.
-      key = element.get(_TRANSFORM_INTERNAL_FEATURE_FOR_KEY, None)
-      if key is not None:
-        element = element.copy()
-        del element[_TRANSFORM_INTERNAL_FEATURE_FOR_KEY]
-      yield (key, self._coder.encode(element))
 
   @beam.typehints.with_input_types(beam.Pipeline)
   class _OptimizeRun(beam.PTransform):
@@ -1285,16 +1235,11 @@ class Executor(base_executor.BaseExecutor):
             dataset.standardized = (
                 pipeline | 'TFXIOReadAndDecode[{}]'.format(infix) >>
                 dataset.tfxio.BeamSource(desired_batch_size))
-            (dataset.transformed, metadata) = (
-                ((dataset.standardized, dataset.tfxio.TensorAdapterConfig()),
-                 transform_fn)
-                | 'Transform[{}]'.format(infix) >> tft_beam.TransformDataset())
-
-            dataset.transformed_and_serialized = (
-                dataset.transformed
-                | 'EncodeAndSerialize[{}]'.format(infix)
-                >> beam.ParDo(self._EncodeAsSerializedExamples(),
-                              _GetSchemaProto(metadata)))
+            (dataset.transformed,
+             metadata) = (((dataset.standardized,
+                            dataset.tfxio.TensorAdapterConfig()), transform_fn)
+                          | 'Transform[{}]'.format(infix) >>
+                          tft_beam.TransformDataset(output_record_batches=True))
 
           if compute_statistics:
             # Aggregated feature stats after transformation.
@@ -1304,15 +1249,6 @@ class Executor(base_executor.BaseExecutor):
             # schema. Currently input dataset schema only contains dtypes,
             # and other metadata is dropped due to roundtrip to tensors.
             transformed_schema_proto = _GetSchemaProto(metadata)
-
-            for dataset in transform_data_list:
-              infix = 'TransformIndex{}'.format(dataset.index)
-              dataset.transformed_and_standardized = (
-                  dataset.transformed_and_serialized
-                  | 'FromTransformedToArrowRecordBatches[{}]'
-                  .format(infix)
-                  >> self._ToArrowRecordBatches(
-                      schema=transformed_schema_proto))
 
             post_transform_feature_stats_path = os.path.join(
                 transform_output_path,
@@ -1324,8 +1260,7 @@ class Executor(base_executor.BaseExecutor):
                 transformed_schema_proto, metadata.asset_map,
                 transform_output_path)
 
-            ([dataset.transformed_and_standardized
-              for dataset in transform_data_list]
+            ([dataset.transformed for dataset in transform_data_list]
              | 'FlattenTransformedDatasets' >> beam.Flatten()
              | 'WaitForTransformWrite' >> beam.Map(
                  lambda x, completion: x,
@@ -1341,7 +1276,7 @@ class Executor(base_executor.BaseExecutor):
               # below.
               for dataset in transform_data_list:
                 infix = 'TransformIndex{}'.format(dataset.index)
-                (dataset.transformed_and_standardized
+                (dataset.transformed
                  | 'WaitForTransformWrite[{}]'.format(infix) >> beam.Map(
                      lambda x, completion: x,
                      completion=beam.pvalue.AsSingleton(completed_transform))
@@ -1352,10 +1287,11 @@ class Executor(base_executor.BaseExecutor):
           if materialization_format is not None:
             for dataset in transform_data_list:
               infix = 'TransformIndex{}'.format(dataset.index)
-              (dataset.transformed_and_serialized
+              (dataset.transformed
+               | 'EncodeAndSerialize[{}]'.format(infix) >> beam.FlatMap(
+                   self._RecordBatchToExamples)
                | 'Materialize[{}]'.format(infix) >> self._WriteExamples(
-                   materialization_format,
-                   dataset.materialize_output_path))
+                   materialization_format, dataset.materialize_output_path))
 
     return _Status.OK()
 
@@ -1539,3 +1475,33 @@ class Executor(base_executor.BaseExecutor):
   def _GetTFXIOPassthroughKeys() -> Optional[Set[Text]]:
     """Always returns None."""
     return None
+
+  @staticmethod
+  def _FilterInternalColumn(record_batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Filters internal feature column."""
+    filtered_column_names = []
+    filtered_columns = []
+    for i, column_name in enumerate(record_batch.schema.names):
+      if column_name != _TRANSFORM_INTERNAL_FEATURE_FOR_KEY:
+        filtered_column_names.append(column_name)
+        filtered_columns.append(record_batch.column(i))
+    return pa.RecordBatch.from_arrays(filtered_columns, filtered_column_names)
+
+  @staticmethod
+  def _RecordBatchToExamples(
+      record_batch: pa.RecordBatch) -> Generator[Tuple[Any, bytes], None, None]:
+    """Maps `pa.RecordBatch` to a list of serialized tf.Examples."""
+    try:
+      internal_feature_idx = record_batch.schema.names.index(
+          _TRANSFORM_INTERNAL_FEATURE_FOR_KEY)
+      keys = record_batch.column(internal_feature_idx).values.to_pylist()
+      record_batch = Executor._FilterInternalColumn(record_batch)
+      for key, example in zip(
+          keys,
+          tfx_bsl.coders.example_coder.RecordBatchToExamples(record_batch)):
+        yield (key, example)
+    except ValueError:
+      # Internal feature is not present.
+      for example in tfx_bsl.coders.example_coder.RecordBatchToExamples(
+          record_batch):
+        yield (None, example)
