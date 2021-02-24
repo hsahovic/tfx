@@ -18,6 +18,7 @@ import functools
 import threading
 import time
 from typing import List, Optional, Sequence, Set, Text
+import uuid
 
 from absl import logging
 from tfx.orchestration import metadata
@@ -29,6 +30,7 @@ from tfx.orchestration.experimental.core import sync_pipeline_task_gen
 from tfx.orchestration.experimental.core import task as task_lib
 from tfx.orchestration.experimental.core import task_gen_utils
 from tfx.orchestration.experimental.core import task_queue as tq
+from tfx.orchestration.portable import runtime_parameter_utils
 from tfx.orchestration.portable.mlmd import execution_lib
 from tfx.proto.orchestration import pipeline_pb2
 
@@ -122,6 +124,24 @@ def initiate_pipeline_start(
     status_lib.StatusNotOkError: Failure to initiate pipeline start or if
       execution is not inactive after waiting `timeout_secs`.
   """
+  if pipeline.execution_mode == pipeline_pb2.Pipeline.SYNC:
+    which_value = pipeline.runtime_spec.pipeline_run_id.WhichOneof('value')
+    if which_value == 'field_value':
+      pipeline_run_id = (
+          pipeline.runtime_spec.pipeline_run_id.field_value.string_value)
+      if not pipeline_run_id:
+        raise status_lib.StatusNotOkError(
+            code=status_lib.Code.INVALID_ARGUMENT,
+            message=(
+                'Cannot start sync pipeline that has no `pipeline_run_id` and '
+                'is not configured for runtime substitution.'))
+    else:
+      pipeline_run_id = str(uuid.uuid4())
+      runtime_parameter_utils.substitute_runtime_parameter(
+          pipeline, {'pipeline_run_id': pipeline_run_id})
+    assert (pipeline.runtime_spec.pipeline_run_id.field_value.string_value ==
+            pipeline_run_id)
+
   with pstate.PipelineState.new(mlmd_handle, pipeline) as pipeline_state:
     pass
   return pipeline_state

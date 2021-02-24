@@ -21,6 +21,7 @@ from typing import Any, Dict, Text
 import mock
 import tensorflow as tf
 
+from tfx.extensions.google_cloud_ai_platform.trainer import executor as ai_platform_trainer_executor
 from tfx.extensions.google_cloud_ai_platform.tuner import executor as ai_platform_tuner_executor
 from tfx.proto import tuner_pb2
 from tfx.utils import json_utils
@@ -43,7 +44,7 @@ class ExecutorTest(tf.test.TestCase):
     # before being passed into Do function.
     self._exec_properties = {
         'custom_config': {
-            ai_platform_tuner_executor.TUNING_ARGS_KEY: {
+            ai_platform_trainer_executor.TRAINING_ARGS_KEY: {
                 'project': self._project_id,
                 'jobDir': self._job_dir,
             },
@@ -100,7 +101,7 @@ class ExecutorTest(tf.test.TestCase):
         tuner_pb2.TuneArgs(num_parallel_trials=6))
 
     self._exec_properties['custom_config'][
-        ai_platform_tuner_executor.TUNING_ARGS_KEY].update({
+        ai_platform_trainer_executor.TRAINING_ARGS_KEY].update({
             'scaleTier': 'CUSTOM',
             'masterType': 'n1-highmem-16',
             'workerType': 'n1-highmem-16',

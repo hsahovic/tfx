@@ -67,9 +67,7 @@ class RunnerTest(tf.test.TestCase):
       self._job_labels = telemetry_utils.get_labels_dict()
 
   def _setUpTrainingMocks(self):
-    self._mock_create_request = mock.Mock()
     self._mock_create = mock.Mock()
-    self._mock_create.return_value = self._mock_create_request
     self._mock_api_client.projects().jobs().create = self._mock_create
     self._mock_get = mock.Mock()
     self._mock_api_client.projects().jobs().get.return_value = self._mock_get
@@ -83,8 +81,7 @@ class RunnerTest(tf.test.TestCase):
     result['custom_config'] = json_utils.dumps(result['custom_config'])
     return result
 
-  @mock.patch(
-      'tfx.extensions.google_cloud_ai_platform.training_clients.discovery')
+  @mock.patch('tfx.extensions.google_cloud_ai_platform.runner.discovery')
   def testStartAIPTraining(self, mock_discovery):
     mock_discovery.build.return_value = self._mock_api_client
     self._setUpTrainingMocks()
@@ -120,10 +117,8 @@ class RunnerTest(tf.test.TestCase):
         }, body['trainingInput'])
     self.assertStartsWith(body['jobId'], 'tfx_')
     self._mock_get.execute.assert_called_with()
-    self._mock_create_request.execute.assert_called_with()
 
-  @mock.patch(
-      'tfx.extensions.google_cloud_ai_platform.training_clients.discovery')
+  @mock.patch('tfx.extensions.google_cloud_ai_platform.runner.discovery')
   def testStartAIPTrainingWithUserContainer(self, mock_discovery):
     mock_discovery.build.return_value = self._mock_api_client
     self._setUpTrainingMocks()
@@ -160,7 +155,6 @@ class RunnerTest(tf.test.TestCase):
         }, body['trainingInput'])
     self.assertEqual(body['jobId'], 'my_jobid')
     self._mock_get.execute.assert_called_with()
-    self._mock_create_request.execute.assert_called_with()
 
   def _setUpPredictionMocks(self):
     self._serving_path = os.path.join(self._output_data_dir, 'serving_path')
@@ -362,6 +356,8 @@ class RunnerTest(tf.test.TestCase):
     self.assertEqual('1.15', runner._get_tf_runtime_version('2.0.0'))
     self.assertEqual('1.15', runner._get_tf_runtime_version('2.0.1'))
     self.assertEqual('2.1', runner._get_tf_runtime_version('2.1.0'))
+    self.assertEqual('2.2', runner._get_tf_runtime_version('2.2.0'))
+    self.assertEqual('2.2', runner._get_tf_runtime_version('2.3.0'))
 
   def testGetAiPlatformTrainingPythonVersion(self):
     if sys.version_info.major == 2:

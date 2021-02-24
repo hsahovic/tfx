@@ -100,8 +100,7 @@ def write_string_file(file_name: Text, string_value: Text) -> None:
   """Writes a string to file."""
 
   fileio.makedirs(os.path.dirname(file_name))
-  with fileio.open(file_name, 'w') as f:
-    f.write(string_value)
+  fileio.open(file_name, 'w').write(string_value)
 
 
 def write_pbtxt_file(file_name: Text, proto: Message) -> None:

@@ -108,15 +108,10 @@ class BaseNode(with_metaclass(abc.ABCMeta, json_utils.Jsonable)):
                 for k, v in self.__dict__.items()
                 if k not in ['_upstream_nodes', '_downstream_nodes'])
 
-  @classmethod
-  def get_class_type(cls) -> Text:
-    nondeprecated_class = deprecation_utils.get_first_nondeprecated_class(cls)
-    return '.'.join(
-        [nondeprecated_class.__module__, nondeprecated_class.__name__])
-
   @property
   def type(self) -> Text:
-    return self.__class__.get_class_type()
+    node_class = deprecation_utils.get_first_nondeprecated_class(self.__class__)
+    return '.'.join([node_class.__module__, node_class.__name__])
 
   @property
   @deprecation_utils.deprecated(None,

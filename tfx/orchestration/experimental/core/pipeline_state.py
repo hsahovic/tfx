@@ -14,9 +14,11 @@
 """Pipeline state management functionality."""
 
 import base64
+import json
 from typing import List, Text
 
 from absl import logging
+import cattr
 from tfx.orchestration import data_types_utils
 from tfx.orchestration import metadata
 from tfx.orchestration.experimental.core import status as status_lib
@@ -267,18 +269,15 @@ def get_orchestrator_contexts(
   return mlmd_handle.store.get_contexts_by_type(_ORCHESTRATOR_RESERVED_ID)
 
 
-# TODO(goutham): Handle sync pipelines.
 def orchestrator_context_name(pipeline_uid: task_lib.PipelineUid) -> str:
   """Returns orchestrator reserved context name."""
-  return f'{_ORCHESTRATOR_RESERVED_ID}_{pipeline_uid.pipeline_id}'
+  return json.dumps(cattr.unstructure(pipeline_uid), sort_keys=True)
 
 
-# TODO(goutham): Handle sync pipelines.
 def pipeline_uid_from_orchestrator_context(
     context: metadata_store_pb2.Context) -> task_lib.PipelineUid:
   """Returns pipeline uid from orchestrator reserved context."""
-  pipeline_id = context.name.split(_ORCHESTRATOR_RESERVED_ID + '_')[1]
-  return task_lib.PipelineUid(pipeline_id=pipeline_id, pipeline_run_id=None)
+  return cattr.structure(json.loads(context.name), task_lib.PipelineUid)
 
 
 def _node_stop_initiated_property(node_uid: task_lib.NodeUid) -> str:
