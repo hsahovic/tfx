@@ -38,22 +38,15 @@ class PlaceholderTest(tf.test.TestCase):
     del placeholder
     self.assertProtoEquals(placeholder_copy.encode(), expected_pb)
 
-  def testArtifactUriWithDefault0Index(self):
+  def testArtifactUriSimple(self):
     self._assert_placeholder_pb_equal_and_deepcopyable(
         ph.input('model').uri, """
         operator {
           artifact_uri_op {
             expression {
-              operator {
-                index_op {
-                  expression {
-                    placeholder {
-                      type: INPUT_ARTIFACT
-                      key: "model"
-                    }
-                  }
-                  index: 0
-                }
+              placeholder {
+                type: INPUT_ARTIFACT
+                key: "model"
               }
             }
           }
@@ -111,16 +104,9 @@ class PlaceholderTest(tf.test.TestCase):
         operator {
           artifact_value_op {
             expression {
-              operator {
-                index_op {
-                  expression {
-                    placeholder {
-                      type: INPUT_ARTIFACT
-                      key: "primitive"
-                    }
-                  }
-                  index: 0
-                }
+              placeholder {
+                type: INPUT_ARTIFACT
+                key: "primitive"
               }
             }
           }
@@ -136,15 +122,9 @@ class PlaceholderTest(tf.test.TestCase):
               operator {
                 artifact_uri_op {
                   expression {
-                    operator {
-                      index_op {
-                        expression {
-                          placeholder {
-                            type: OUTPUT_ARTIFACT
-                            key: "model"
-                          }
-                        }
-                      }
+                    placeholder {
+                      type: OUTPUT_ARTIFACT
+                      key: "model"
                     }
                   }
                 }
@@ -213,16 +193,9 @@ class PlaceholderTest(tf.test.TestCase):
               operator {
                 artifact_uri_op {
                   expression {
-                    operator {
-                      index_op {
-                        expression {
-                          placeholder {
-                            type: OUTPUT_ARTIFACT
-                            key: "model"
-                          }
-                        }
-                        index: 0
-                      }
+                    placeholder {
+                      type: OUTPUT_ARTIFACT
+                      key: "model"
                     }
                   }
                 }
